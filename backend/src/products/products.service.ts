@@ -1,23 +1,41 @@
 import { Model } from 'mongoose';
 import { HttpException, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { MongoServerError } from 'mongodb';
 
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Product } from './entities/product.entity';
 
+const ERRORS = {
+  CREATE: 'Failed to create product',
+  FETCH_ALL: 'Failed to fetch products',
+  FETCH_ONE: 'Failed to fetch product',
+  UPDATE: 'Failed to update product',
+  DELETE: 'Failed to delete product',
+  NOT_FOUND: 'Product not found',
+};
+
 @Injectable()
 export class ProductsService {
   constructor(
-    @InjectModel(Product.name) private productModel: Model<Product>,
+    @InjectModel(Product.name) private readonly productModel: Model<Product>,
   ) {}
 
-  async create(createProductDto: CreateProductDto) {
+  async create(dto: CreateProductDto) {
     try {
-      return await this.productModel.create(createProductDto);
-    } catch (error) {
-      console.error('Error creating product:', error);
-      throw new HttpException('Failed to create product', 500);
+      return await this.productModel.create(dto);
+    } catch (error: unknown) {
+      console.error('Create Error:', error);
+
+      if (error instanceof MongoServerError && error.code === 11000) {
+        throw new HttpException(
+          `Product with name '${dto.name}' already exists`,
+          409,
+        );
+      }
+
+      throw new HttpException(ERRORS.CREATE, 500);
     }
   }
 
@@ -25,51 +43,54 @@ export class ProductsService {
     try {
       return await this.productModel.find().exec();
     } catch (error) {
-      console.error('Error fetching products:', error);
-      throw new HttpException('Failed to fetch products', 500);
+      console.error('Find All Error:', error);
+
+      throw new HttpException(ERRORS.FETCH_ALL, 500);
     }
   }
 
   async findOne(id: string) {
     try {
-      const productFound = await this.productModel.findById(id).exec();
+      const product = await this.productModel.findById(id).exec();
 
-      if (!productFound) throw new HttpException('Product not found', 404);
+      if (!product) {
+        throw new HttpException(ERRORS.NOT_FOUND, 404);
+      }
 
-      return productFound;
+      return product;
     } catch (error) {
-      console.error('Error fetching product:', error);
-      throw new HttpException('Failed to fetch product', 500);
+      console.error('Find One Error:', error);
+      throw new HttpException(ERRORS.FETCH_ONE, 500);
     }
   }
 
-  async update(id: string, updateProductDto: UpdateProductDto) {
+  async update(id: string, dto: UpdateProductDto) {
     try {
-      const updatedProduct = await this.productModel
-        .findByIdAndUpdate(id, updateProductDto)
-        .exec();
+      const updated = await this.productModel.findByIdAndUpdate(id, dto).exec();
 
-      if (!updatedProduct) throw new HttpException('Product not found', 404);
+      if (!updated) {
+        throw new HttpException(ERRORS.NOT_FOUND, 404);
+      }
 
-      return updatedProduct;
+      return updated;
     } catch (error) {
-      console.error('Error updating product:', error);
-      throw new HttpException('Failed to update product', 500);
+      console.error('Update Error:', error);
+      throw new HttpException(ERRORS.UPDATE, 500);
     }
   }
 
   async remove(id: string) {
     try {
-      const deletedProduct = await this.productModel
-        .findByIdAndDelete(id)
-        .exec();
+      const deleted = await this.productModel.findByIdAndDelete(id).exec();
 
-      if (!deletedProduct) throw new HttpException('Product not found', 404);
+      if (!deleted) {
+        throw new HttpException(ERRORS.NOT_FOUND, 404);
+      }
 
-      return deletedProduct;
+      return deleted;
     } catch (error) {
-      console.error('Error deleting product:', error);
-      throw new HttpException('Failed to delete product', 500);
+      console.error('Delete Error:', error);
+      throw new HttpException(ERRORS.DELETE, 500);
     }
   }
 }
